@@ -3,7 +3,7 @@ Transform data schemas
 
 [![Build Status](https://travis-ci.org/intentmedia/schema-transform.svg)](https://travis-ci.org/intentmedia/schema-transform)
 
-[![Clojars Project](http://clojars.org/com.intentmedia/schema-transform/latest-version.svg)](http://clojars.org/com.intentmedia/schema-transform)
+[![Clojars Project](http://clojars.org/com.intentmedia/schema-transform/latest-version.svg)](http://clojars.org/ua.modnakasta/schema-transform)
 
 ## Usage
 
