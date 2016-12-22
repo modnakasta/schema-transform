@@ -56,6 +56,23 @@
       [(s/optional s/Int "1") (s/optional (s/enum "one" "two" "zero") "2")])))
 
 
+(deftest test-combinator-schemas
+  (are [json prismatic] (= prismatic (json->prismatic (generate-string json)))
+    {:allOf [{:type "object" :properties {:a {:type "integer"}}}
+             {:type "object" :properties {:b {:type "string"}}}]}
+    (s/both
+      {(s/optional-key :a) s/Int
+       s/Str               s/Any}
+      {(s/optional-key :b) s/Str
+       s/Str               s/Any})
+
+    {:anyOf [{:type "string"} {:type "number"}]}
+    (s/either s/Str s/Num)
+
+    {:oneOf [{:type "string"} {:type "number"}]}
+    (s/either s/Str s/Num)))
+
+
 (deftest test-json-transform
   (testing "Converts a simple object type"
     (is (= {:order_id s/Int

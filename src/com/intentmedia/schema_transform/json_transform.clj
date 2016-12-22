@@ -41,17 +41,17 @@
         required   (->> json-object-type :required (map keyword) (into #{}))
         required?  (partial contains? required)]
     (->> properties
-      (map
-        (fn [[name schema]]
-          (let [key-modifier (if (required? name)
-                               identity
-                               s/optional-key)]
-            [(key-modifier name)
-             (json-type-transformer schema)])))
-      (reduce
-        (fn [combiner [k v]]
-          (assoc combiner k v))
-        {}))))
+         (map
+           (fn [[name schema]]
+             (let [key-modifier (if (required? name)
+                                  identity
+                                  s/optional-key)]
+               [(key-modifier name)
+                (json-type-transformer schema)])))
+         (reduce
+           (fn [combiner [k v]]
+             (assoc combiner k v))
+           {}))))
 
 
 (defn json-object-additional-props-transformer [transformed add-props]
@@ -70,14 +70,14 @@
   (let [add-props (:additionalProperties json-object-type)
         preds (predicates (:minProperties json-object-type) (:maxProperties json-object-type))]
     (-> (json-object-props-transformer json-object-type)
-      (json-object-additional-props-transformer add-props)
-      (add-preds preds))))
+        (json-object-additional-props-transformer add-props)
+        (add-preds preds))))
 
 
 (defn json-tuple-transformer [json-array-type]
   (let [schema (->> (:items json-array-type)
-                 (map-indexed #(s/optional (json-type-transformer %2) (str (inc %1))))
-                 (into []))]
+                    (map-indexed #(s/optional (json-type-transformer %2) (str (inc %1))))
+                    (into []))]
     (if (false? (:additionalItems json-array-type))
       schema
       (conj schema s/Any))))
@@ -95,17 +95,27 @@
     (-> (if (map? (:items json-array-type))
           (json-list-transformer json-array-type)
           (json-tuple-transformer json-array-type))
-      (add-preds preds))))
+        (add-preds preds))))
 
 
 (defn json-nil? [type]
   (= "null" type))
 
+
 (defn enum? [json-type]
   (vector? (:enum json-type)))
 
+
+(def combinators (juxt :allOf :anyOf :oneOf))
+
+
+(defn combinator? [json-type]
+  (some vector? (combinators json-type)))
+
+
 (defn nilable? [types]
   (some json-nil? types))
+
 
 (defn union? [types]
   (and (vector? types)
@@ -114,6 +124,16 @@
 
 (defn json-enum-transformer [json-enum-type]
   (apply s/enum (:enum json-enum-type)))
+
+
+(defn json-combinator-transformer [json-combinator-type]
+  (let [[all any one] (combinators json-combinator-type)
+        [fn schemas]  (cond
+                        all [s/both all]
+                        any [s/either any]
+                        one [s/either one])]
+    ;; TODO: oneOf should be exclusive
+    (apply fn (map json-type-transformer schemas))))
 
 
 (defn json-nilable-transformer [json-nilable-type]
@@ -142,6 +162,9 @@
 
       (enum? json-type)
       (json-enum-transformer json-type)
+
+      (combinator? json-type)
+      (json-combinator-transformer json-type)
 
       (union? type)
       (json-union-type-transformer json-type)
