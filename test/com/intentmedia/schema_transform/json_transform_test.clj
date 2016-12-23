@@ -75,22 +75,34 @@
 
 (deftest test-json-transform
   (testing "Converts a simple object type"
-    (is (= {:order_id s/Int
+    (is (= {:order_id    s/Int
             :customer_id s/Int
-            :total s/Num}
+            :total       s/Num}
           (json->prismatic (read-schema "simple.json")))))
 
+
+  (testing "Converts schema with $ref"
+    (let [adr {:street_address s/Str
+               :city           s/Str
+               :state          s/Str}]
+      (is (= {(s/optional-key :billing_address)  adr
+              (s/optional-key :shipping_address) adr}
+             (json->prismatic (read-schema "refs.json"))))))
+
+
   (testing "Converts a complex object type"
-    (is (= {:order_id s/Int
-            :customer_id s/Int
-            :total s/Num
-            :order_details [{:quantity s/Int
-                             :total s/Num
-                             :product_detail {:product_id s/Int
-                                              :product_name s/Str
-                                              (s/optional-key :product_description) (s/maybe s/Str)
-                                              :product_status (s/enum "AVAILABLE" "OUT_OF_STOCK")
-                                              :product_tags [s/Str]
-                                              :price s/Num
-                                              :product_properties {s/Str s/Str}}}]}
-          (json->prismatic (read-schema "complex.json"))))))
+    (is (= {:order_id      s/Int
+            :customer_id   s/Int
+            :total         s/Num
+            :order_details
+            [{:quantity       s/Int
+              :total          s/Num
+              :product_detail
+              {:product_id                           s/Int
+               :product_name                         s/Str
+               (s/optional-key :product_description) (s/maybe s/Str)
+               :product_status                       (s/enum "AVAILABLE" "OUT_OF_STOCK")
+               :product_tags                         [s/Str]
+               :price                                s/Num
+               :product_properties                   {s/Str s/Str}}}]}
+           (json->prismatic (read-schema "complex.json"))))))

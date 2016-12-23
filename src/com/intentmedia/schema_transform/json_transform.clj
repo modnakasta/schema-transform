@@ -1,9 +1,11 @@
 (ns com.intentmedia.schema-transform.json-transform
   (:require [cheshire.core :refer [parse-string]]
+            [clojure.string :as str]
             [schema.core :as s]))
 
-(declare json-type-transformer)
+(def ^:dynamic *ctx* nil)
 
+(declare json-type-transformer)
 
 (def json-primitive->prismatic-primitive
   {"boolean" s/Bool
@@ -102,6 +104,10 @@
   (= "null" type))
 
 
+(defn ref? [json-type]
+  (:$ref json-type))
+
+
 (defn enum? [json-type]
   (vector? (:enum json-type)))
 
@@ -120,6 +126,29 @@
 (defn union? [types]
   (and (vector? types)
        (> (count types) 0)))
+
+
+(defn starts-with? [s prefix]
+  (some-> s (.startsWith prefix)))
+
+
+(defn get-json-schema [ref]
+  (when-not (starts-with? ref "#/")
+    (throw (ex-info (str "Can't parse ref. Only refs to current document are supported") {:ref ref})))
+  (let [path (->> (rest (str/split ref #"/"))
+                  (map keyword)
+                  (into [:root]))]
+    (get-in *ctx* path)))
+
+
+(defn json-ref-transformer [json-ref-type]
+  (let [ref    (:$ref json-ref-type)
+        schema (get-in *ctx* [:defs ref])]
+    (if schema
+      schema
+      (let [schema (json-type-transformer (get-json-schema ref))]
+        (swap! (:defs *ctx*) assoc ref schema)
+        schema))))
 
 
 (defn json-enum-transformer [json-enum-type]
@@ -160,6 +189,9 @@
       (nilable? type)
       (json-nilable-transformer json-type)
 
+      (ref? json-type)
+      (json-ref-transformer json-type)
+
       (enum? json-type)
       (json-enum-transformer json-type)
 
@@ -180,7 +212,9 @@
 
 
 (defn json-parsed->prismatic [json]
-  (json-type-transformer json))
+  (binding [*ctx* {:root json
+                   :defs (atom {})}]
+    (json-type-transformer json)))
 
 
 (defn json->prismatic [json]
