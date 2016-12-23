@@ -5,6 +5,34 @@
 
 (def ^:dynamic *ctx* nil)
 
+(defn initial-ctx
+  "Return initial context
+
+  `root`: full json schema we're parsing
+  `defs`: map $ref -> (atom prismatic-schema)
+
+  We're using atom to store individual defs to allow for recursive schemas"
+  [root]
+  (atom {:root    root
+         :defs    {}}))
+
+
+(defn get-in-root [path]
+  (get-in @*ctx* (into [:root] path)))
+
+
+(defn get-definition [ref]
+  (get-in @*ctx* [:defs ref]))
+
+
+(defn init-definition! [ref]
+  (swap! *ctx* update :defs assoc ref (atom nil)))
+
+
+(defn save-definition! [ref definition]
+  (reset! (get-definition ref) definition))
+
+
 (declare json-type-transformer)
 
 (def json-primitive->prismatic-primitive
@@ -135,20 +163,27 @@
 (defn get-json-schema [ref]
   (when-not (starts-with? ref "#/")
     (throw (ex-info (str "Can't parse ref. Only refs to current document are supported") {:ref ref})))
-  (let [path (->> (rest (str/split ref #"/"))
-                  (map keyword)
-                  (into [:root]))]
-    (get-in *ctx* path)))
+  (let [path (->> (rest (str/split ref #"/")) (map keyword))]
+    (get-in-root path)))
 
 
 (defn json-ref-transformer [json-ref-type]
   (let [ref    (:$ref json-ref-type)
-        schema (get-in *ctx* [:defs ref])]
-    (if schema
-      schema
-      (let [schema (json-type-transformer (get-json-schema ref))]
-        (swap! (:defs *ctx*) assoc ref schema)
-        schema))))
+        schema (get-definition ref)]
+    (cond
+      ;; no saved schema => transform
+      (nil? schema)
+      (let [_      (init-definition! ref)
+            schema (json-type-transformer (get-json-schema ref))]
+        (save-definition! ref schema)
+        schema)
+
+      ;; initialized but empty => recursively referencing a schema we're processing
+      (nil? @schema)
+      (s/maybe (s/recursive schema))
+
+      :else
+      @schema)))
 
 
 (defn json-enum-transformer [json-enum-type]
@@ -212,8 +247,7 @@
 
 
 (defn json-parsed->prismatic [json]
-  (binding [*ctx* {:root json
-                   :defs (atom {})}]
+  (binding [*ctx* (initial-ctx json)]
     (json-type-transformer json)))
 
 

@@ -1,11 +1,9 @@
 (ns com.intentmedia.schema-transform.json-transform-test
-  (:require [clojure.test :refer :all]
+  (:require [cheshire.core :refer [generate-string]]
             [clojure.java.io :as io]
-
-            [schema.core :as s]
-            [cheshire.core :refer [generate-string]]
-            [com.intentmedia.schema-transform.json-transform :refer :all]))
-
+            [clojure.test :refer :all]
+            [com.intentmedia.schema-transform.json-transform :refer :all]
+            [schema.core :as s]))
 
 (defn- read-schema [filename]
   (slurp (io/file (io/resource filename))))
@@ -80,7 +78,6 @@
             :total       s/Num}
           (json->prismatic (read-schema "simple.json")))))
 
-
   (testing "Converts schema with $ref"
     (let [adr {:street_address s/Str
                :city           s/Str
@@ -89,14 +86,24 @@
               (s/optional-key :shipping_address) adr}
              (json->prismatic (read-schema "refs.json"))))))
 
+  (testing "Converts recursive schema"
+    (let [schema (json->prismatic (read-schema "recursive.json"))
+          tree   {:name     "root"
+                  :children [{:name     "first"
+                              :children [{:name     "subfirst"
+                                          :children []}]}
+                             {:name     "second"
+                              :children nil}]}]
+      (is (nil? (s/check schema tree)))
+      (is (some? (s/check schema {:invalid :schema})))))
 
   (testing "Converts a complex object type"
-    (is (= {:order_id      s/Int
-            :customer_id   s/Int
-            :total         s/Num
+    (is (= {:order_id    s/Int
+            :customer_id s/Int
+            :total       s/Num
             :order_details
-            [{:quantity       s/Int
-              :total          s/Num
+            [{:quantity s/Int
+              :total    s/Num
               :product_detail
               {:product_id                           s/Int
                :product_name                         s/Str

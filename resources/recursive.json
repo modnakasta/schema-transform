@@ -1,0 +1,17 @@
+{
+  "$ref": "#/definitions/node",
+
+  "definitions": {
+    "node": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/node"}
+        }
+      },
+      "required": ["name"]
+    }
+  }
+}
