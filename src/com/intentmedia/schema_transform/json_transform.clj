@@ -133,7 +133,7 @@
 
 
 (defn ref? [json-type]
-  (:$ref json-type))
+  (boolean (:$ref json-type)))
 
 
 (defn enum? [json-type]
