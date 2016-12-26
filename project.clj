@@ -1,4 +1,4 @@
-(defproject ua.modnakasta/schema-transform "0.1.0-1"
+(defproject ua.modnakasta/schema-transform "0.1.0-2"
   :description "Schema Transform is library for changing data specifications from one format to another to help build complex polyglot data systems."
   :url "https://github.com/intentmedia/schema-transform"
   :license {:name "Eclipse Public License"
