@@ -1,9 +1,39 @@
 (ns com.intentmedia.schema-transform.json-transform
   (:require [cheshire.core :refer [parse-string]]
+            [clojure.string :as str]
             [schema.core :as s]))
 
-(declare json-type-transformer)
+(def ^:dynamic *ctx* nil)
 
+(defn initial-ctx
+  "Return initial context
+
+  `root`: full json schema we're parsing
+  `defs`: map $ref -> (atom prismatic-schema)
+
+  We're using atom to store individual defs to allow for recursive schemas"
+  [root]
+  (atom {:root    root
+         :defs    {}}))
+
+
+(defn get-in-root [path]
+  (get-in @*ctx* (into [:root] path)))
+
+
+(defn get-definition [ref]
+  (get-in @*ctx* [:defs ref]))
+
+
+(defn init-definition! [ref]
+  (swap! *ctx* update :defs assoc ref (atom nil)))
+
+
+(defn save-definition! [ref definition]
+  (reset! (get-definition ref) definition))
+
+
+(declare json-type-transformer)
 
 (def json-primitive->prismatic-primitive
   {"boolean" s/Bool
@@ -41,17 +71,17 @@
         required   (->> json-object-type :required (map keyword) (into #{}))
         required?  (partial contains? required)]
     (->> properties
-      (map
-        (fn [[name schema]]
-          (let [key-modifier (if (required? name)
-                               identity
-                               s/optional-key)]
-            [(key-modifier name)
-             (json-type-transformer schema)])))
-      (reduce
-        (fn [combiner [k v]]
-          (assoc combiner k v))
-        {}))))
+         (map
+           (fn [[name schema]]
+             (let [key-modifier (if (required? name)
+                                  identity
+                                  s/optional-key)]
+               [(key-modifier name)
+                (json-type-transformer schema)])))
+         (reduce
+           (fn [combiner [k v]]
+             (assoc combiner k v))
+           {}))))
 
 
 (defn json-object-additional-props-transformer [transformed add-props]
@@ -70,14 +100,14 @@
   (let [add-props (:additionalProperties json-object-type)
         preds (predicates (:minProperties json-object-type) (:maxProperties json-object-type))]
     (-> (json-object-props-transformer json-object-type)
-      (json-object-additional-props-transformer add-props)
-      (add-preds preds))))
+        (json-object-additional-props-transformer add-props)
+        (add-preds preds))))
 
 
 (defn json-tuple-transformer [json-array-type]
   (let [schema (->> (:items json-array-type)
-                 (map-indexed #(s/optional (json-type-transformer %2) (str (inc %1))))
-                 (into []))]
+                    (map-indexed #(s/optional (json-type-transformer %2) (str (inc %1))))
+                    (into []))]
     (if (false? (:additionalItems json-array-type))
       schema
       (conj schema s/Any))))
@@ -95,25 +125,79 @@
     (-> (if (map? (:items json-array-type))
           (json-list-transformer json-array-type)
           (json-tuple-transformer json-array-type))
-      (add-preds preds))))
+        (add-preds preds))))
 
 
 (defn json-nil? [type]
   (= "null" type))
 
+
+(defn ref? [json-type]
+  (boolean (:$ref json-type)))
+
+
 (defn enum? [json-type]
   (vector? (:enum json-type)))
 
+
+(def combinators (juxt :allOf :anyOf :oneOf))
+
+
+(defn combinator? [json-type]
+  (some vector? (combinators json-type)))
+
+
 (defn nilable? [types]
   (some json-nil? types))
+
 
 (defn union? [types]
   (and (vector? types)
        (> (count types) 0)))
 
 
+(defn starts-with? [s prefix]
+  (some-> s (.startsWith prefix)))
+
+
+(defn get-json-schema [ref]
+  (when-not (starts-with? ref "#/")
+    (throw (ex-info (str "Can't parse ref. Only refs to current document are supported") {:ref ref})))
+  (let [path (->> (rest (str/split ref #"/")) (map keyword))]
+    (get-in-root path)))
+
+
+(defn json-ref-transformer [json-ref-type]
+  (let [ref    (:$ref json-ref-type)
+        schema (get-definition ref)]
+    (cond
+      ;; no saved schema => transform
+      (nil? schema)
+      (let [_      (init-definition! ref)
+            schema (json-type-transformer (get-json-schema ref))]
+        (save-definition! ref schema)
+        schema)
+
+      ;; initialized but empty => recursively referencing a schema we're processing
+      (nil? @schema)
+      (s/maybe (s/recursive schema))
+
+      :else
+      @schema)))
+
+
 (defn json-enum-transformer [json-enum-type]
   (apply s/enum (:enum json-enum-type)))
+
+
+(defn json-combinator-transformer [json-combinator-type]
+  (let [[all any one] (combinators json-combinator-type)
+        [fn schemas]  (cond
+                        all [s/both all]
+                        any [s/either any]
+                        one [s/either one])]
+    ;; TODO: oneOf should be exclusive
+    (apply fn (map json-type-transformer schemas))))
 
 
 (defn json-nilable-transformer [json-nilable-type]
@@ -140,8 +224,14 @@
       (nilable? type)
       (json-nilable-transformer json-type)
 
+      (ref? json-type)
+      (json-ref-transformer json-type)
+
       (enum? json-type)
       (json-enum-transformer json-type)
+
+      (combinator? json-type)
+      (json-combinator-transformer json-type)
 
       (union? type)
       (json-union-type-transformer json-type)
@@ -157,7 +247,8 @@
 
 
 (defn json-parsed->prismatic [json]
-  (json-type-transformer json))
+  (binding [*ctx* (initial-ctx json)]
+    (json-type-transformer json)))
 
 
 (defn json->prismatic [json]
